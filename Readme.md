@@ -322,4 +322,4 @@ For issues or questions:
 
 **⚡ Nexora Intelligence Engine — Decision-Grade Intelligence, Powered by AI**
 
-*Last Updated: 2024-11-07*
+*Last Updated: 2025-11-07*

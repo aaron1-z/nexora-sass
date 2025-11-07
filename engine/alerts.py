@@ -1,56 +1,175 @@
-from typing import List, Dict, Any, Tuple
-from collections import Counter
-from .utils import clean_text
-from .sentiment import score_sentiment
+"""
+Alert rules DSL with backtesting
+"""
+from typing import List, Dict, Any
+import json
+import os
 
-def calculate_urgency(sentiment: float, catalyst_count: int, trigger_count: int) -> str:
-    """Calculate urgency level: High, Medium, Low."""
-    score = abs(sentiment) * 2 + catalyst_count * 0.5 + trigger_count
-    if score >= 4.0:
-        return "High"
-    elif score >= 2.0:
-        return "Medium"
-    else:
-        return "Low"
+from .utils import log, DATA_DIR
 
-def find_correlations(items: List[Dict[str, Any]], min_cooccurrence: int = 3) -> List[Tuple[str, str, int]]:
-    """Find frequently co-occurring catalyst pairs."""
-    pairs = Counter()
-    for it in items:
-        cats = it.get("catalysts", [])
-        if len(cats) >= 2:
-            for i, c1 in enumerate(cats):
-                for c2 in cats[i+1:]:
-                    pair = tuple(sorted([c1, c2]))
-                    pairs[pair] += 1
+
+RULES_PATH = os.path.join(DATA_DIR, "rules.json")
+
+
+def load_rules() -> List[Dict[str, Any]]:
+    """Load alert rules from disk"""
+    if not os.path.exists(RULES_PATH):
+        return []
     
-    correlations = [(c1, c2, count) for (c1, c2), count in pairs.items() if count >= min_cooccurrence]
-    correlations.sort(key=lambda x: x[2], reverse=True)
-    return correlations[:10]
+    try:
+        with open(RULES_PATH, "r", encoding="utf-8") as f:
+            rules = json.load(f)
+        log.info(f"Loaded {len(rules)} rules")
+        return rules
+    except Exception as e:
+        log.error(f"Failed to load rules: {e}")
+        return []
 
-def generate_alerts(items: List[Dict[str, Any]], keywords: List[str]) -> List[Dict[str, Any]]:
-    alerts = []
-    keys = [k.lower() for k in keywords if k]
-    for it in items:
-        text = " ".join([it.get("title",""), clean_text(", ".join(it.get("catalysts", [])))])
-        trig = [k for k in keys if k in text.lower()]
-        s = float(it.get("sentiment", 0.0))
-        cat_count = len(it.get("catalysts", []))
+
+def save_rules(rules: List[Dict[str, Any]]) -> None:
+    """Save alert rules to disk"""
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        with open(RULES_PATH, "w", encoding="utf-8") as f:
+            json.dump(rules, f, indent=2)
+        log.info(f"Saved {len(rules)} rules")
+    except Exception as e:
+        log.error(f"Failed to save rules: {e}")
+
+
+def _match_rule(rule: Dict[str, Any], row: Dict[str, Any]) -> bool:
+    """
+    Check if a headline matches a rule
+    
+    Rule format:
+        {
+            "name": "...",
+            "any": ["keyword:X", "catalyst:Y"],  # OR conditions
+            "all": ["sentiment>=0.2"],  # AND conditions
+            "min_sentiment": 0.2,
+            "min_credibility": 0.6,
+            ...
+        }
+    """
+    # Check ANY conditions (at least one must match)
+    any_conditions = rule.get("any", [])
+    if any_conditions:
+        any_match = False
+        for cond in any_conditions:
+            if ":" in cond:
+                typ, val = cond.split(":", 1)
+                typ = typ.strip().lower()
+                val = val.strip().lower()
+                
+                if typ == "keyword" and val in row.get("title", "").lower():
+                    any_match = True
+                    break
+                elif typ == "catalyst" and any(val in c.lower() for c in row.get("catalysts", [])):
+                    any_match = True
+                    break
+                elif typ == "entity" and any(val in e.lower() for e in row.get("entities", [])):
+                    any_match = True
+                    break
+                elif typ == "source" and val in row.get("source", "").lower():
+                    any_match = True
+                    break
         
-        if trig or abs(s) >= 0.6 or cat_count >= 3:
-            urgency = calculate_urgency(s, cat_count, len(trig))
-            alerts.append({
-                "title": it.get("title"),
-                "link": it.get("link"),
-                "source": it.get("source"),
-                "triggers": trig,
-                "sentiment": s,
-                "catalysts": it.get("catalysts", []),
-                "urgency": urgency,
-                "timestamp": it.get("timestamp", 0),
-            })
+        if not any_match:
+            return False
     
-    # prioritize strongest signals
-    urgency_map = {"High": 3, "Medium": 2, "Low": 1}
-    alerts.sort(key=lambda x: (urgency_map.get(x["urgency"], 0), len(x["triggers"]), abs(x["sentiment"]), len(x["catalysts"])), reverse=True)
-    return alerts[:15]
+    # Check ALL conditions (all must match)
+    all_conditions = rule.get("all", [])
+    for cond in all_conditions:
+        if ">=" in cond:
+            field, val = cond.split(">=")
+            field = field.strip()
+            threshold = float(val.strip())
+            if field == "sentiment" and row.get("sentiment", 0.0) < threshold:
+                return False
+            elif field == "credibility" and row.get("credibility", 0.0) < threshold:
+                return False
+        elif "<=" in cond:
+            field, val = cond.split("<=")
+            field = field.strip()
+            threshold = float(val.strip())
+            if field == "sentiment" and row.get("sentiment", 0.0) > threshold:
+                return False
+            elif field == "credibility" and row.get("credibility", 0.0) > threshold:
+                return False
+    
+    # Check min thresholds
+    if "min_sentiment" in rule and row.get("sentiment", 0.0) < rule["min_sentiment"]:
+        return False
+    if "min_credibility" in rule and row.get("credibility", 0.0) < rule["min_credibility"]:
+        return False
+    
+    return True
+
+
+def run_rules(rules: List[Dict[str, Any]], flash: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Run all rules against flash data and return alerts
+    
+    Returns:
+        List of alert dicts with: title, source, link, sentiment, severity, rule_name
+    """
+    alerts = []
+    
+    for rule in rules:
+        if not rule.get("enabled", True):
+            continue
+        
+        for row in flash:
+            if _match_rule(rule, row):
+                alerts.append({
+                    "title": row.get("title", ""),
+                    "source": row.get("source", ""),
+                    "link": row.get("link", ""),
+                    "sentiment": row.get("sentiment", 0.0),
+                    "severity": rule.get("severity", "Medium"),
+                    "rule_name": rule.get("name", "Unnamed"),
+                    "timestamp": row.get("timestamp", 0),
+                })
+    
+    # Sort by severity (High > Medium > Low)
+    severity_order = {"Critical": 4, "High": 3, "Medium": 2, "Low": 1}
+    alerts.sort(key=lambda x: severity_order.get(x["severity"], 0), reverse=True)
+    
+    return alerts
+
+
+def backtest_rule(rule: Dict[str, Any], history: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Backtest a rule over historical data
+    
+    Returns:
+        Dict with: matches, precision_proxy, avg_sentiment
+    """
+    matches = []
+    
+    for row in history:
+        if _match_rule(rule, row):
+            matches.append(row)
+    
+    if not matches:
+        return {
+            "matches": 0,
+            "precision_proxy": 0.0,
+            "avg_sentiment": 0.0,
+            "sample_matches": [],
+        }
+    
+    # Calculate metrics
+    sentiments = [m.get("sentiment", 0.0) for m in matches]
+    avg_sent = sum(sentiments) / len(sentiments)
+    
+    # Precision proxy: how many matches had |sentiment| >= 0.6 (significant)
+    significant = sum(1 for s in sentiments if abs(s) >= 0.6)
+    precision = significant / len(matches) if matches else 0.0
+    
+    return {
+        "matches": len(matches),
+        "precision_proxy": round(precision, 2),
+        "avg_sentiment": round(avg_sent, 3),
+        "sample_matches": matches[:5],
+    }

@@ -20,3 +20,4 @@ vaderSentiment==3.3.2
 networkx==3.2.1
 pyvis==0.3.2
 plotly==5.24.1
+PyYAML==6.0.1

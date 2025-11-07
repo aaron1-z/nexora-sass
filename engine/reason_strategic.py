@@ -125,11 +125,11 @@ def _rule_based_brief(query: str, analyzed: List[Dict[str, Any]], historical: Li
 
     actions = []
 
-    def act(title, rationale, steps, sizing, kpis, timeline, risks, mitigations):
+    def act(title, rationale, steps, sizing, kpis, timeline, risks, mitigations, impact_score=0.7):
         actions.append({
             "title": title, "rationale": rationale, "steps": steps,
             "sizing": sizing, "kpis": kpis, "timeline": timeline,
-            "risks": risks, "mitigations": mitigations
+            "risks": risks, "mitigations": mitigations, "impact_score": impact_score
         })
 
     act(
@@ -143,6 +143,7 @@ def _rule_based_brief(query: str, analyzed: List[Dict[str, Any]], historical: Li
         "T+2: seed; T+7: scale on confirmation; T+30: review",
         ["Regulatory headline risk", "Crowded momentum unwind"],
         ["Tighten stops to ATR(14)*1.2", "Hedge via correlated index puts"],
+        impact_score=0.85,
     )
     act(
         "Event-driven hedge",
@@ -153,6 +154,7 @@ def _rule_based_brief(query: str, analyzed: List[Dict[str, Any]], historical: Li
         "T-3 to T+2 around events",
         ["IV crush post-event", "Gapping through strikes"],
         ["Use vertical spreads to reduce Vega", "Roll on large gaps"],
+        impact_score=0.75,
     )
     act(
         "Data-driven monitor & rebalance",
@@ -163,6 +165,7 @@ def _rule_based_brief(query: str, analyzed: List[Dict[str, Any]], historical: Li
         "Continuous; weekly check-in",
         ["Signal noise / false positives"],
         ["Use multi-signal confirmation (≥2 indicators)"],
+        impact_score=0.65,
     )
 
     scenarios = [

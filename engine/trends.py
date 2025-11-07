@@ -1,7 +1,7 @@
 from collections import Counter
 import pandas as pd
 from typing import List, Dict, Any
-from .utils import short_hash, format_time_ago
+from .utils import short_hash, format_time_ago, calculate_volatility
 
 def _entities_from_title(title: str) -> List[str]:
     if not title: return []
@@ -38,9 +38,35 @@ def build_trends(items: List[Dict[str, Any]]) -> Dict[str, Any]:
 
     table = df[["id","Title","Source","Sentiment","catalysts","time","link"]]
 
+    # Calculate volatility index
+    volatility = calculate_volatility(items)
+    
     return {
         "top_entities": top_entities,
         "top_catalysts": top_catalysts,
         "sentiment_avg": sentiment_avg,
+        "volatility": volatility,
         "table": table,
     }
+
+def sentiment_evolution(items: List[Dict[str, Any]]) -> pd.DataFrame:
+    """Track sentiment evolution over time for key entities."""
+    if not items:
+        return pd.DataFrame(columns=["timestamp", "entity", "sentiment"])
+    
+    rows = []
+    for it in items:
+        ts = it.get("timestamp", 0)
+        sent = float(it.get("sentiment", 0.0))
+        entities = it.get("entities") or _entities_from_title(it.get("title", ""))
+        for ent in entities[:3]:  # Top 3 entities per item
+            rows.append({"timestamp": ts, "entity": ent, "sentiment": sent})
+    
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df
+    
+    # Aggregate by entity and time buckets
+    df["time_bucket"] = pd.to_datetime(df["timestamp"], unit="s").dt.floor("5min")
+    grouped = df.groupby(["time_bucket", "entity"])["sentiment"].mean().reset_index()
+    return grouped.sort_values("time_bucket")

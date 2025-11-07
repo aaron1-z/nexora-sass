@@ -1,6 +1,6 @@
 import feedparser, time
 from typing import List, Dict, Any
-from .utils import clean_text, normalize_url, hash_string, rate_limit_key, log
+from .utils import clean_text, normalize_url, hash_string, rate_limit_key, log, get_cached, cache_result
 from .sentiment import score_sentiment
 from .classify import classify_catalysts
 from .credibility import score_credibility
@@ -12,9 +12,15 @@ FLASH_SOURCES = [
 ]
 
 def fetch_live_news(limit: int = 25) -> List[Dict[str, Any]]:
-    """Fast RSS flash feed with sentiment, catalysts, credibility."""
+    """Fast RSS flash feed with sentiment, catalysts, credibility. Cached for 5 minutes."""
+    cache_key = f"flash_news_{limit}"
+    cached = get_cached(cache_key, ttl=300)  # 5 min cache
+    if cached:
+        return cached
+    
     if not rate_limit_key("flash_feed", seconds=8):
-        return []
+        # Return cached even if expired rather than empty
+        return get_cached(cache_key, ttl=3600) or []
 
     all_items: List[Dict[str, Any]] = []
     try:
@@ -51,4 +57,7 @@ def fetch_live_news(limit: int = 25) -> List[Dict[str, Any]]:
         seen.add(it["id"])
         uniq.append(it)
         if len(uniq) >= limit: break
+    
+    # Cache the results
+    cache_result(cache_key, uniq)
     return uniq

@@ -137,3 +137,59 @@ def format_time_ago(ts: float) -> str:
     if diff < 3600: return f"{diff // 60}m ago"
     if diff < 86400: return f"{diff // 3600}h ago"
     return f"{diff // 86400}d ago"
+
+# ---------- Enhanced Analytics ----------
+def calculate_sentiment_drift(items: List[Dict[str, Any]], window: int = 5) -> float:
+    """Calculate sentiment drift between recent and older items."""
+    if len(items) < window * 2:
+        return 0.0
+    sents = [float(it.get("sentiment", 0.0)) for it in items]
+    recent = sum(sents[:window]) / window if len(sents) >= window else 0.0
+    older = sum(sents[window:window*2]) / window if len(sents) >= window*2 else recent
+    return recent - older
+
+def calculate_volatility(items: List[Dict[str, Any]]) -> float:
+    """Calculate sentiment volatility (standard deviation)."""
+    sents = [float(it.get("sentiment", 0.0)) for it in items]
+    if len(sents) < 2:
+        return 0.0
+    mean_sent = sum(sents) / len(sents)
+    variance = sum((s - mean_sent) ** 2 for s in sents) / len(sents)
+    return variance ** 0.5
+
+def get_ai_signal(sentiment_avg: float, drift: float, volatility: float) -> str:
+    """Determine AI signal based on metrics."""
+    if sentiment_avg > 0.2 and drift > 0.1:
+        return "⬆ Bullish"
+    elif sentiment_avg < -0.2 and drift < -0.1:
+        return "⬇ Bearish"
+    elif volatility > 0.4:
+        return "⚡ Volatile"
+    else:
+        return "⚖ Neutral"
+
+def highlight_keywords(text: str, keywords: List[str]) -> str:
+    """Highlight keywords in text with HTML markup."""
+    if not keywords or not text:
+        return text
+    import re
+    highlighted = text
+    for kw in keywords:
+        if not kw:
+            continue
+        pattern = re.compile(re.escape(kw), re.IGNORECASE)
+        highlighted = pattern.sub(f'<mark style="background:#ffd700;color:#000;padding:2px 4px;border-radius:3px;">{kw}</mark>', highlighted)
+    return highlighted
+
+def generate_forecast_data(sentiment_avg: float, volatility: float, days: int = 30):
+    """Generate simple forecast data for visualization."""
+    import random
+    random.seed(42)  # For consistency
+    data = []
+    current = sentiment_avg
+    for i in range(days):
+        # Random walk with mean reversion
+        change = random.gauss(0, volatility * 0.3) + (sentiment_avg - current) * 0.1
+        current = max(-1.0, min(1.0, current + change))
+        data.append({"day": i + 1, "sentiment": round(current, 3)})
+    return data

@@ -30,10 +30,20 @@ class MemoryStore:
 
     def _load_embedder(self) -> SentenceTransformer:
         try:
+            log.info(f"Loading embedder: {self.model_name}")
             return SentenceTransformer(self.model_name, cache_folder=MODELS_DIR)
         except Exception as e:
-            log.warning("Falling back embedder due to: %s", e)
-            return SentenceTransformer("all-MiniLM-L6-v2", cache_folder=MODELS_DIR)
+            log.warning("Primary embedder failed: %s, trying fallback", e)
+            try:
+                return SentenceTransformer("all-MiniLM-L6-v2", cache_folder=MODELS_DIR)
+            except Exception as e2:
+                log.error("Fallback embedder also failed: %s, trying without cache", e2)
+                # Last resort: try without cache folder
+                try:
+                    return SentenceTransformer("all-MiniLM-L6-v2")
+                except Exception as e3:
+                    log.critical("All embedder loading attempts failed: %s", e3)
+                    raise RuntimeError(f"Cannot load any sentence transformer model: {e3}") from e3
 
     def _load_faiss_index(self):
         if os.path.exists(FAISS_PATH):

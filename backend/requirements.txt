@@ -1,0 +1,29 @@
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+
+# Pydantic v2 stack
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# Environment & config
+python-dotenv==1.0.0
+
+# Supabase (manages its own httpx dependency)
+supabase==2.0.3
+
+# Payments
+dodopayments>=1.0.0
+
+# HTTP & Auth
+requests>=2.31.0
+python-jose[cryptography]==3.3.0
+pyjwt==2.8.0
+
+# File uploads (FastAPI)
+python-multipart==0.0.6
+
+# Engine dependencies (optional / add when needed)
+# transformers
+# torch
+# sentencepiece
+# feedparser

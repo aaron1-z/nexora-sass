@@ -1,6 +1,7 @@
 """
 Utility functions for Nexora Intelligence Workbench
 """
+
 import os
 import re
 import json
@@ -62,6 +63,40 @@ def highlight(text: str, keys: List[str]) -> str:
         highlighted = pattern.sub(r"<mark class='hl'>\1</mark>", highlighted)
     return highlighted
 
+# ---------- Chunking (🔥 REQUIRED BY ENGINE) ----------
+def chunk_text(
+    text: str,
+    max_tokens: int = 512,
+    overlap: int = 50,
+) -> List[str]:
+    """
+    Split text into overlapping chunks.
+
+    This is required by:
+    - engine.reason_analyst
+    - embedding / analysis pipelines
+
+    Token approximation is word-based for safety.
+    """
+    if not text:
+        return []
+
+    words = text.split()
+    chunks = []
+
+    start = 0
+    while start < len(words):
+        end = start + max_tokens
+        chunk = " ".join(words[start:end])
+        chunks.append(chunk)
+
+        if end >= len(words):
+            break
+
+        start = end - overlap
+
+    return chunks
+
 # ---------- File Utilities ----------
 def save_zip_bundle(path: str, files: Dict[str, Any]) -> None:
     """Save multiple files into a ZIP bundle"""
@@ -119,13 +154,17 @@ def parse_json_loose(text: str) -> Dict[str, Any]:
         return json.loads(text)
     except Exception:
         pass
-    # Try to extract JSON object
+
     m = re.search(r"\{[\s\S]*\}", text)
     if not m:
         return {}
+
     blob = m.group(0)
-    # Try various fixes
-    for cand in (blob, blob.replace("'", '"'), re.sub(r",\s*([}\]])", r"\1", blob.replace("'", '"'))):
+    for cand in (
+        blob,
+        blob.replace("'", '"'),
+        re.sub(r",\s*([}\]])", r"\1", blob.replace("'", '"')),
+    ):
         try:
             return json.loads(cand)
         except Exception:
@@ -155,7 +194,8 @@ def clear_cache() -> None:
 def safe_export_json(obj: Any) -> str:
     """Export object to JSON, handling non-serializable types"""
     def default(o):
-        if hasattr(o, '__dict__'):
+        if hasattr(o, "__dict__"):
             return o.__dict__
         return str(o)
+
     return json.dumps(obj, indent=2, default=default, ensure_ascii=False)
